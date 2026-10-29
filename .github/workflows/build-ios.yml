@@ -1,0 +1,55 @@
+name: Build iOS IPA
+
+on:
+  workflow_dispatch:   # run manually: Actions tab -> Build iOS IPA -> Run workflow
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable   # your pubspec needs Flutter >= 3.38.4; pin an exact version here if builds drift
+          cache: true
+
+      - name: Get packages
+        run: flutter pub get
+
+      - name: Write Maps API key for iOS
+        env:
+          MAPS_API_KEY: ${{ secrets.IOS_MAPS_API_KEY }}
+        run: |
+          if [ -z "$MAPS_API_KEY" ]; then
+            echo "::error::Secret IOS_MAPS_API_KEY is not set in this repo (Settings > Secrets and variables > Actions)."
+            exit 1
+          fi
+          printf 'MAPS_API_KEY=%s\n' "$MAPS_API_KEY" > ios/Flutter/Secrets.xcconfig
+
+      - name: Build iOS app (unsigned)
+        run: flutter build ios --release --no-codesign
+
+      - name: Package IPA
+        run: |
+          mkdir Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/
+          zip -qry capstone.ipa Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: capstone-ipa
+          path: capstone.ipa
+          retention-days: 14
+
+      - name: Upload Podfile.lock (commit it to the repo after the first good build)
+        uses: actions/upload-artifact@v4
+        with:
+          name: podfile-lock
+          path: ios/Podfile.lock
+          if-no-files-found: ignore
